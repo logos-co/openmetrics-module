@@ -1,0 +1,22 @@
+# Rust build artifacts (any crate, any depth)
+target/
+
+# Staged at build time by the flake's preConfigure (prebuilt .a + header)
+/lib/
+/example-metrics-source/lib/
+
+# Codegen output
+generated_code/
+**/generated_code/
+
+# Nix build result symlinks
+result
+result-*
+
+# Local-only: staged copy of the logos-rust-sdk crate so `cargo build` resolves
+# the `../logos-rust-sdk-src` path dependency outside Nix. The Nix build stages
+# its own copy from the flake input.
+logos-rust-sdk-src/
+
+# macOS
+.DS_Store

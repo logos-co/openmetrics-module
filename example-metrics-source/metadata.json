@@ -1,0 +1,29 @@
+{
+  "name": "metrics_demo",
+  "version": "0.1.0",
+  "description": "Example module exposing collectMetrics() for the prometheus_metrics scraper",
+  "author": "Logos Core Team",
+  "type": "core",
+  "interface": "c-ffi",
+  "category": "monitoring",
+  "main": "metrics_demo_plugin",
+  "dependencies": [],
+  "include": [],
+  "capabilities": [],
+
+  "codegen": {
+    "c_header": "lib/metrics_demo.h"
+  },
+
+  "nix": {
+    "external_libraries": [],
+    "packages": {
+      "build": ["cargo", "rustc"],
+      "runtime": []
+    },
+    "cmake": {
+      "find_packages": [],
+      "extra_include_dirs": ["lib"]
+    }
+  }
+}

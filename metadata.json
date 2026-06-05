@@ -1,0 +1,29 @@
+{
+  "name": "prometheus_metrics",
+  "version": "0.1.0",
+  "description": "Serves a Prometheus /metrics endpoint by querying configured modules' collectMetrics()",
+  "author": "Logos Core Team",
+  "type": "core",
+  "interface": "c-ffi",
+  "category": "monitoring",
+  "main": "prometheus_metrics_plugin",
+  "dependencies": [],
+  "include": [],
+  "capabilities": [],
+
+  "codegen": {
+    "c_header": "lib/prometheus_metrics.h"
+  },
+
+  "nix": {
+    "external_libraries": [],
+    "packages": {
+      "build": ["cargo", "rustc"],
+      "runtime": []
+    },
+    "cmake": {
+      "find_packages": [],
+      "extra_include_dirs": ["lib"]
+    }
+  }
+}
