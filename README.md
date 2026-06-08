@@ -1,28 +1,40 @@
-# prometheus-metrics-module
+# openmetrics-module
 
-A Logos module (`prometheus_metrics`) that serves a Prometheus `/metrics`
-endpoint for a logos.dev node running in headless mode.
+A Logos module (`openmetrics`) that serves an [OpenMetrics](https://prometheus.io/docs/specs/om/open_metrics_spec/)
+`/metrics` endpoint for a logos.dev node, so operators can scrape it with
+Prometheus and build dashboards.
 
 It is a **pure passthrough**: you start it with a config JSON listing the
-modules to scrape, it stands up an HTTP server, and on each scrape it fans out
-**concurrently** to those modules, calls each one's `collectMetrics()` method,
-and renders the aggregated result as Prometheus exposition text. It does **not**
-discover loaded modules or read any platform/core stats — it only queries the
-modules you tell it to.
+modules to scrape, it stands up an HTTP server, and on each scrape it calls each
+module's `collectMetrics()` and renders the aggregated result as OpenMetrics
+text. It does **not** discover modules or read platform stats — it only queries
+the modules you list.
 
-Written in Rust (`c-ffi` interface) using
-[`logos-rust-sdk`](https://github.com/logos-co/logos-rust-sdk) for inter-module
-IPC and [`tiny_http`](https://crates.io/crates/tiny_http) for the server.
+Written as a **universal pure-C++ module** (no Qt in the module code). It uses
+the **interface-dependencies** feature: instead of depending on any concrete
+module, it declares a dependency on the `metrics_source` *interface* (the
+`collectMetrics()` contract in [`openmetrics/interfaces/metrics_source.h`](openmetrics/interfaces/metrics_source.h))
+and binds it to operator-chosen module names at runtime. The HTTP server is
+[libmicrohttpd](https://www.gnu.org/software/libmicrohttpd/), a small, well-known
+embeddable HTTP server.
+
+> **Threading / SDK requirement.** The HTTP server runs on its own thread, but
+> Logos inter-module calls (Qt Remote Objects) only work on the module's
+> main/event-loop thread. The module stays pure C++ by relying on the SDK to
+> marshal those calls: `logos-cpp-sdk`'s `LogosAPIClient` transparently runs
+> `getClient`/`invokeRemoteMethod`/`requestObject`/`onEvent` on the owner thread
+> when called from a worker thread (see `logos_thread_marshal.h`). This module
+> therefore requires that SDK support.
 
 ## How modules expose metrics
 
 Any module that wants to be scraped implements one method by convention:
 
-```
-collectMetrics() -> LogosMap
+```cpp
+LogosMap collectMetrics();   // universal C++
 ```
 
-returning prometheus-like fields:
+returning openmetrics-like fields:
 
 ```json
 {
@@ -33,15 +45,18 @@ returning prometheus-like fields:
 }
 ```
 
-- `name` — Prometheus metric name
-- `type` — `counter`, `gauge`, `histogram`, or `summary` (unknown → `untyped`)
-- `help` — short description
-- `value` — number (bools map to 1/0; numeric strings pass through)
-- `labels` — optional string→string label pairs
+| Field    | Meaning                                                                       |
+| -------- | ----------------------------------------------------------------------------- |
+| `name`   | metric name (for counters, the OpenMetrics `_total` sample suffix is handled) |
+| `type`   | `counter`, `gauge`, `histogram`, or `summary` (unknown/missing → `unknown`)   |
+| `help`   | short description                                                             |
+| `value`  | number (bools map to 1/0; numeric strings pass through)                       |
+| `labels` | optional string→string label pairs                                            |
 
-Every emitted series additionally carries a `module="<name>"` label identifying
-its source. Modules that don't implement `collectMetrics` (or that error/time
-out) are skipped silently, so one bad module never breaks a scrape.
+Every emitted series additionally carries a `module="<name>"` label. Modules
+that don't implement `collectMetrics` (or that error) are skipped, so one bad
+module never breaks a scrape. See [`example-metrics-source/`](example-metrics-source)
+for a minimal provider.
 
 ## Module API
 
@@ -49,7 +64,8 @@ out) are skipped silently, so one bad module never breaks a scrape.
 |--------|-----------|---------|
 | `start` | `start(config: string) -> int64` | Parse config JSON and start the HTTP server. Returns 1 on success, 0 on failure. |
 | `stop` | `stop() -> int64` | Stop the HTTP server. Returns 1 if stopped, 0 if not running. |
-| `get_info` | `get_info() -> string` | `{"running": bool, "port": int, "modules": [...]}` |
+| `getInfo` | `getInfo() -> string` | `{"running": bool, "port": int, "modules": [...]}` |
+| `scrape` | `scrape() -> string` | Collect + render the OpenMetrics document directly (handy for debugging). |
 
 `start` config JSON:
 
@@ -60,85 +76,41 @@ out) are skipped silently, so one bad module never breaks a scrape.
 ## Usage
 
 ```bash
-# Build the module
-nix build .#prometheus_metrics
+# Build the module (and the example provider)
+nix build .#openmetrics
+nix build .#modules     # combined modules/ dir with openmetrics + metrics_demo
 
-# Run under logoscore alongside the modules you want to scrape
-logoscore -m result -m <other-modules-dir> \
-  -l prometheus_metrics,storage_module,chat_module \
-  -c 'prometheus_metrics.start({"port":9090,"modules":["storage_module","chat_module"]})'
+# Run under a logoscore daemon and point it at the modules to scrape
+logoscore -D -m result --config-dir /tmp/om
+logoscore --config-dir /tmp/om load-module metrics_demo
+logoscore --config-dir /tmp/om load-module openmetrics
+logoscore --config-dir /tmp/om call openmetrics start '{"port":9090,"modules":["metrics_demo"]}'
 
 # Scrape it
 curl http://localhost:9090/metrics
-
-# Stop it
-logoscore -c 'prometheus_metrics.stop()'
 ```
 
 ### HTTP endpoints
 
 | Endpoint | Response |
 |----------|----------|
-| `GET /metrics` | Prometheus exposition text (`text/plain; version=0.0.4`) |
+| `GET /metrics` | OpenMetrics text (`application/openmetrics-text; version=1.0.0`) |
 | `GET /health`  | `ok` (liveness) |
-
-## Build & test
-
-```bash
-nix build              # build the module
-nix flake check        # run the Rust unit tests (formatter coverage)
-```
-
-Local Rust iteration (outside Nix) needs the SDK staged so the
-`../logos-rust-sdk-src` path dependency resolves:
-
-```bash
-git clone https://github.com/logos-co/logos-rust-sdk logos-rust-sdk-src
-cd rust-lib && cargo test
-```
-
-## Status & validation
-
-Validated end-to-end against a `logoscore` daemon:
-
-- The module builds (Nix), loads, and exposes exactly `start` / `stop` / `get_info`.
-- `start` parses its config JSON, binds the port, and the server serves
-  `GET /metrics` (`text/plain; version=0.0.4`), `GET /health`, and 404s.
-- `stop` releases the port; `get_info` reports `{running, port, modules}`.
-- Rust unit tests cover the exposition formatter and the server lifecycle
-  (`nix flake check` / `cargo test`).
-- The `collectMetrics` convention works: `logoscore call metrics_demo collectMetrics`
-  returns the expected `{"metrics": [...]}` payload.
-
-> **Note:** live cross-module scraping (the server calling `collectMetrics` on
-> another module) relies on the platform's capability/token layer to authorize
-> inter-module calls. That requires `capability_module` to be functional and all
-> components (logoscore, capability_module, the modules) built from a consistent
-> SDK — the normal case in a real deployment/CI. Verify scraping with:
->
-> ```bash
-> logoscore -D -m result --config-dir /tmp/pm
-> logoscore --config-dir /tmp/pm load-module metrics_demo
-> logoscore --config-dir /tmp/pm load-module prometheus_metrics
-> logoscore --config-dir /tmp/pm call prometheus_metrics start '{"port":9090,"modules":["metrics_demo"]}'
-> curl localhost:9090/metrics
-> ```
 
 ## Layout
 
 ```
 .
-├── metadata.json                 # module manifest (interface: c-ffi)
-├── CMakeLists.txt                # links the Rust staticlib + logos-module-client
-├── flake.nix                     # builds the staticlib then the Qt plugin
-├── lib/                          # staged at build time (.a + header) — gitignored
-└── rust-lib/
-    ├── Cargo.toml / Cargo.lock
-    ├── include/prometheus_metrics.h   # C header the codegen wraps into methods
-    └── src/
-        ├── lib.rs        # extern "C" entry points → methods start/stop/get_info
-        ├── state.rs      # global server state (config + handle)
-        ├── collector.rs  # concurrent fan-out to modules' collectMetrics()
-        ├── formatter.rs  # LogosMap JSON → Prometheus exposition text
-        └── server.rs     # tiny_http server (/metrics, /health)
+├── flake.nix                       # builds both modules + a combined modules/ dir
+├── openmetrics/                    # the scraper module
+│   ├── metadata.json               # interface: universal; interface_dependencies: metrics_source
+│   ├── CMakeLists.txt              # logos_module + libmicrohttpd via pkg-config
+│   ├── interfaces/metrics_source.h # the collectMetrics() contract (IMetricsSource)
+│   └── src/
+│       ├── openmetrics_impl.h/.cpp     # LogosModuleContext; start/stop/getInfo/scrape + MHD server
+│       └── openmetrics_format.h/.cpp   # LogosMap → OpenMetrics exposition text
+└── example-metrics-source/         # a minimal provider implementing collectMetrics()
+    ├── metadata.json
+    ├── CMakeLists.txt
+    └── src/metrics_demo_impl.h/.cpp
 ```

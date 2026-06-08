@@ -1,0 +1,26 @@
+{
+  "name": "openmetrics",
+  "version": "0.1.0",
+  "description": "Serves an OpenMetrics /metrics endpoint by scraping modules that implement collectMetrics()",
+  "author": "Logos Core Team",
+  "type": "core",
+  "category": "monitoring",
+  "main": "openmetrics_plugin",
+  "interface": "universal",
+  "dependencies": [],
+  "interface_dependencies": [
+    { "name": "metrics_source", "file": "interfaces/metrics_source.h", "impl_class": "IMetricsSource" }
+  ],
+
+  "nix": {
+    "external_libraries": [],
+    "packages": {
+      "build": ["pkg-config"],
+      "runtime": ["libmicrohttpd", "nlohmann_json"]
+    },
+    "cmake": {
+      "find_packages": [],
+      "extra_sources": []
+    }
+  }
+}

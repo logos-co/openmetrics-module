@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(MetricsDemoModulePlugin LANGUAGES CXX)
+project(MetricsDemo2ModulePlugin LANGUAGES CXX)
 
 if(DEFINED ENV{LOGOS_MODULE_BUILDER_ROOT})
     include($ENV{LOGOS_MODULE_BUILDER_ROOT}/cmake/LogosModule.cmake)
@@ -10,8 +10,8 @@ else()
 endif()
 
 logos_module(
-    NAME metrics_demo
+    NAME metrics_demo_2
     SOURCES
-        src/metrics_demo_impl.h
-        src/metrics_demo_impl.cpp
+        src/metrics_demo_2_impl.h
+        src/metrics_demo_2_impl.cpp
 )
