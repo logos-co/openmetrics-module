@@ -448,11 +448,14 @@ sections:
           - "ok"
 
       - title: "getInfo reports what it's serving"
+        text: |
+          `getInfo()` returns its status as a JSON string, so `logoscore`
+          delivers it as an escaped string inside the `result` field.
         run: "./logos/bin/logoscore call openmetrics getInfo"
         code_block: "logoscore call openmetrics getInfo"
         expect_contains:
-          - '"running":true'
-          - '"port":9099'
+          - '\"running\":true'
+          - '\"port\":9099'
 
       - title: "Stop the server"
         run: "./logos/bin/logoscore call openmetrics stop"
