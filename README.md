@@ -55,8 +55,8 @@ returning openmetrics-like fields:
 
 Every emitted series additionally carries a `module="<name>"` label. Modules
 that don't implement `collectMetrics` (or that error) are skipped, so one bad
-module never breaks a scrape. See [`example-metrics-source/`](example-metrics-source)
-for a minimal provider.
+module never breaks a scrape. See [`doctests/openmetrics.test.yaml`](doctests/openmetrics.test.yaml)
+for two minimal providers, built and scraped end-to-end.
 
 ## Module API
 
@@ -76,19 +76,24 @@ for a minimal provider.
 ## Usage
 
 ```bash
-# Build the module (and the example provider)
-nix build .#openmetrics
-nix build .#modules     # combined modules/ dir with openmetrics + metrics_demo
+# Build the module (default output) or a ready-to-install package
+nix build            # the plugin
+nix build .#lgx      # a .lgx package
 
-# Run under a logoscore daemon and point it at the modules to scrape
-logoscore -D -m result --config-dir /tmp/om
-logoscore --config-dir /tmp/om load-module metrics_demo
+# Run under a logoscore daemon alongside the modules you want to scrape, then
+# point openmetrics at them by name:
+logoscore -D -m ./modules --config-dir /tmp/om
+logoscore --config-dir /tmp/om load-module my_module
 logoscore --config-dir /tmp/om load-module openmetrics
-logoscore --config-dir /tmp/om call openmetrics start '{"port":9090,"modules":["metrics_demo"]}'
+logoscore --config-dir /tmp/om call openmetrics start '{"port":9090,"modules":["my_module"]}'
 
 # Scrape it
 curl http://localhost:9090/metrics
 ```
+
+For a complete, runnable example — two provider modules built and scraped
+end-to-end — see the doc-test in [`doctests/`](doctests/) (run it with
+`cd doctests && ./run.sh`).
 
 ### HTTP endpoints
 
@@ -101,7 +106,7 @@ curl http://localhost:9090/metrics
 
 ```
 .
-├── flake.nix                       # builds both modules + a combined modules/ dir
+├── flake.nix                       # builds the openmetrics module (default, #lgx, #install, …)
 ├── openmetrics/                    # the scraper module
 │   ├── metadata.json               # interface: universal; interface_dependencies: metrics_source
 │   ├── CMakeLists.txt              # logos_module + libmicrohttpd via pkg-config
@@ -109,8 +114,12 @@ curl http://localhost:9090/metrics
 │   └── src/
 │       ├── openmetrics_impl.h/.cpp     # LogosModuleContext; start/stop/getInfo/scrape + MHD server
 │       └── openmetrics_format.h/.cpp   # LogosMap → OpenMetrics exposition text
-└── example-metrics-source/         # a minimal provider implementing collectMetrics()
-    ├── metadata.json
-    ├── CMakeLists.txt
-    └── src/metrics_demo_impl.h/.cpp
+└── doctests/                       # literate end-to-end doc-test
+    ├── openmetrics.test.yaml       # creates two providers inline, builds + scrapes openmetrics
+    ├── run.sh                      # runs the doc-test and regenerates outputs/
+    └── outputs/openmetrics.md      # rendered report (commands + actual output)
 ```
+
+The example provider modules aren't committed — they're created inline by the
+doc-test, which builds this module from the commit under test, runs it with the
+providers under a logoscore daemon, and scrapes `/metrics`.
