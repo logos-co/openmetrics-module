@@ -13,7 +13,7 @@ the modules you list.
 Written as a **universal pure-C++ module** (no Qt in the module code). It uses
 the **interface-dependencies** feature: instead of depending on any concrete
 module, it declares a dependency on the `metrics_source` *interface* (the
-`collectMetrics()` contract in [`openmetrics/interfaces/metrics_source.h`](openmetrics/interfaces/metrics_source.h))
+`collectMetrics()` contract in [`interfaces/metrics_source.h`](interfaces/metrics_source.h))
 and binds it to operator-chosen module names at runtime. The HTTP server is
 [libmicrohttpd](https://www.gnu.org/software/libmicrohttpd/), a small, well-known
 embeddable HTTP server.
@@ -104,20 +104,23 @@ end-to-end — see the doc-test in [`doctests/`](doctests/) (run it with
 
 ## Layout
 
+The module sources sit at the repo root, next to `flake.nix`/`flake.lock` (the
+builder expects the flake alongside `metadata.json`).
+
 ```
 .
-├── flake.nix                       # builds the openmetrics module (default, #lgx, #install, …)
-├── openmetrics/                    # the scraper module
-│   ├── metadata.json               # interface: universal; interface_dependencies: metrics_source
-│   ├── CMakeLists.txt              # logos_module + libmicrohttpd via pkg-config
-│   ├── interfaces/metrics_source.h # the collectMetrics() contract (IMetricsSource)
-│   └── src/
-│       ├── openmetrics_impl.h/.cpp     # LogosModuleContext; start/stop/getInfo/scrape + MHD server
-│       └── openmetrics_format.h/.cpp   # LogosMap → OpenMetrics exposition text
-└── doctests/                       # literate end-to-end doc-test
-    ├── openmetrics.test.yaml       # creates two providers inline, builds + scrapes openmetrics
-    ├── run.sh                      # runs the doc-test and regenerates outputs/
-    └── outputs/openmetrics.md      # rendered report (commands + actual output)
+├── flake.nix                   # builds the openmetrics module (default, #lgx, #install, …)
+├── flake.lock
+├── metadata.json               # interface: universal; interface_dependencies: metrics_source
+├── CMakeLists.txt              # logos_module + libmicrohttpd via pkg-config
+├── interfaces/metrics_source.h # the collectMetrics() contract (IMetricsSource)
+├── src/
+│   ├── openmetrics_impl.h/.cpp     # LogosModuleContext; start/stop/getInfo/scrape + MHD server
+│   └── openmetrics_format.h/.cpp   # LogosMap → OpenMetrics exposition text
+└── doctests/                   # literate end-to-end doc-test
+    ├── openmetrics.test.yaml   # creates two providers inline, builds + scrapes openmetrics
+    ├── run.sh                  # runs the doc-test and regenerates outputs/
+    └── outputs/openmetrics.md  # rendered report (commands + actual output)
 ```
 
 The example provider modules aren't committed — they're created inline by the
