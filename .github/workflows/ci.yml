@@ -33,8 +33,12 @@ jobs:
           name: logos-co
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
-      - name: Build the modules
-        run: nix build .#modules -L
+      - name: Build the module
+        run: nix build -L
 
-      - name: Run the integration check (load 3 modules, scrape /metrics)
-        run: nix flake check -L
+      - name: Build the installable package
+        run: nix build .#lgx -L
+
+      # The end-to-end scrape (scraper + providers through logoscore, curl
+      # /metrics) is exercised by the literate doc-test — see the Doc-Tests
+      # workflow and doctests/openmetrics.test.yaml.
