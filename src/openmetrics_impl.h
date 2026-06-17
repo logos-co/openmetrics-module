@@ -8,10 +8,10 @@
 // concrete module. It binds that interface to each operator-configured module
 // name and calls collectMetrics() through the typed bound wrapper.
 //
-// No Qt here: the libmicrohttpd server runs on its own thread and calls
-// scrape() directly, which performs inter-module IPC. The SDK transparently
-// marshals that IPC onto the module's main/event-loop thread (where Qt Remote
-// Objects replicas live), so this module stays pure C++.
+// The libmicrohttpd server runs on its own worker thread and calls scrape()
+// directly, which performs inter-module IPC. scrape() marshals that IPC onto the
+// module's main/event-loop thread (where Qt Remote Objects replicas live); the
+// marshaling is confined to the .cpp so this header stays plain C++.
 //
 // The impl header stays free of the generated logos_sdk.h and of the
 // libmicrohttpd headers — the generator parses it and expects plain C++. Those
@@ -42,8 +42,8 @@ public:
     std::string getInfo();
 
     // Collect from every configured module and render the OpenMetrics document.
-    // Performs inter-module IPC (SDK-marshaled to the main thread). Called by
-    // the HTTP `/metrics` handler, and exposed as a module method for debugging
+    // Performs inter-module IPC (marshaled onto the main thread). Called by the
+    // HTTP `/metrics` handler, and exposed as a module method for debugging
     // (`logoscore call openmetrics scrape`).
     std::string scrape();
 

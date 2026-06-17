@@ -5,6 +5,10 @@
 
 #include <microhttpd.h>
 
+#include <QCoreApplication>
+#include <QMetaObject>
+#include <QThread>
+
 #include "openmetrics_format.h"
 
 // Generated at build time by logos-cpp-generator. Defines `LogosModules` with
@@ -20,9 +24,27 @@ constexpr const char* kOpenMetricsContentType =
 
 MHD_Daemon* asDaemon(void* p) { return static_cast<MHD_Daemon*>(p); }
 
+// Run `fn` on the module's main Qt thread, blocking the caller until it returns.
+// Inter-module IPC goes over Qt Remote Objects, whose replicas are affined to
+// the main/event-loop thread; calling them from an MHD worker thread would
+// deadlock — the reply rides the main thread's event loop, which the blocked
+// worker never lets run. Runs inline when already on the main thread, or when no
+// QCoreApplication owns the process (unit tests), avoiding a self-deadlock.
+template <typename Fn>
+auto runOnMainThread(Fn&& fn) -> decltype(fn()) {
+    using Ret = decltype(fn());
+    QCoreApplication* app = QCoreApplication::instance();
+    if (app == nullptr || QThread::currentThread() == app->thread()) {
+        return fn();
+    }
+    Ret ret{};
+    QMetaObject::invokeMethod(app, [&]() { ret = fn(); }, Qt::BlockingQueuedConnection);
+    return ret;
+}
+
 // libmicrohttpd access handler. `cls` is the OpenmetricsImpl*. Runs on an MHD
-// worker thread; the inter-module IPC inside scrape() is marshaled onto the
-// module's main thread by the SDK.
+// worker thread; scrape() marshals its inter-module IPC onto the module's main
+// thread.
 MHD_Result onRequest(void* cls, struct MHD_Connection* connection, const char* url,
                      const char* method, const char* /*version*/,
                      const char* /*upload_data*/, size_t* /*upload_data_size*/,
@@ -120,17 +142,17 @@ std::string OpenmetricsImpl::scrape() {
         mods = m_modules;
     }
 
-    std::vector<openmetrics::ModuleMetrics> collected;
-    collected.reserve(mods.size());
-    for (const auto& name : mods) {
-        // Bind the metrics_source interface to this module name and call its
-        // collectMetrics() through the typed wrapper. The SDK marshals the IPC
-        // onto the main thread. A module that doesn't implement it (or errors)
-        // yields an empty LogosMap, which the formatter skips — one bad module
-        // never breaks a scrape.
-        LogosMap payload = modules().bind_metrics_source(name).collectMetrics();
-        collected.push_back({name, std::move(payload)});
-    }
-
-    return openmetrics::toOpenMetricsText(collected);
+    // The collectMetrics() calls below are Qt Remote Objects IPC, so the whole
+    // loop hops onto the main thread. A module that doesn't implement the
+    // interface (or errors) yields an empty LogosMap, which the formatter skips
+    // — one bad module never breaks a scrape.
+    return runOnMainThread([&]() {
+        std::vector<openmetrics::ModuleMetrics> collected;
+        collected.reserve(mods.size());
+        for (const auto& name : mods) {
+            LogosMap payload = modules().bind_metrics_source(name).collectMetrics();
+            collected.push_back({name, std::move(payload)});
+        }
+        return openmetrics::toOpenMetricsText(collected);
+    });
 }
