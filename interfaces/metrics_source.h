@@ -12,6 +12,8 @@
 // Types are std / LogosMap because the consuming module is interface:
 // "universal" — the bound wrapper inherits that api-style.
 
+#include <string>
+
 #include <logos_json.h>            // LogosMap (nlohmann::json alias)
 #include <logos_module_context.h>  // defines the `logos_events` token
 
@@ -21,4 +23,12 @@ public:
     // of prometheus/openmetrics-like fields. See the openmetrics README for the
     // field schema.
     LogosMap collectMetrics();
+
+    // Return an *already rendered* OpenMetrics text document (HELP/TYPE/samples,
+    // terminated with `# EOF`), as a module that natively speaks OpenMetrics
+    // would. The openmetrics module parses this back into the collectMetrics()
+    // shape and merges it like any other source, injecting the module="<name>"
+    // label. A scraped module implements EITHER collectMetrics() OR this one;
+    // the operator picks which to call per module via the start() config.
+    std::string collectOpenMetricsText();
 };

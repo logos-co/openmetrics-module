@@ -36,6 +36,9 @@ jobs:
       - name: Build the module
         run: nix build -L
 
+      - name: Run unit tests
+        run: nix build .#unit-tests -L
+
       - name: Build the installable package
         run: nix build .#lgx -L
 
