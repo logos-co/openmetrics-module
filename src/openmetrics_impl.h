@@ -24,14 +24,26 @@
 
 #include <logos_module_context.h>  // LogosModuleContext base (gives modules())
 
+// One configured scrape target and how to collect from it. `renderedText` picks
+// the convention method the scraper calls on this module: collectMetrics() for a
+// structured LogosMap payload (false), or collectOpenMetricsText() for an
+// already-rendered OpenMetrics document that the scraper parses back (true).
+struct ModuleSource {
+    std::string name;
+    bool renderedText = false;  // false => collectMetrics, true => collectOpenMetricsText
+};
+
 class OpenmetricsImpl : public LogosModuleContext {
 public:
     OpenmetricsImpl() = default;
     ~OpenmetricsImpl();
 
-    // Parse the config JSON ({"port": <int>, "modules": ["<name>", ...]}) and
-    // start the HTTP server. Returns 1 on success, 0 on failure (bad config /
-    // already running / bind error).
+    // Parse the config JSON and start the HTTP server. Returns 1 on success, 0
+    // on failure (bad config / already running / bind error). Config shape:
+    //   {"port": <int>, "modules": [ <entry>, ... ]}
+    // where each <entry> is either a bare string (collectMetrics, the default)
+    // or an object {"name": "<name>", "format": "data"|"text"} — "text" selects
+    // the collectOpenMetricsText() convention instead.
     int64_t start(const std::string& configJson);
 
     // Stop the HTTP server. Returns 1 if it was running and is now stopped, 0
@@ -51,5 +63,5 @@ private:
     std::mutex m_mutex;
     void* m_daemon = nullptr;  // struct MHD_Daemon* (opaque here to keep MHD out of the header)
     int m_port = 0;
-    std::vector<std::string> m_modules;
+    std::vector<ModuleSource> m_modules;
 };

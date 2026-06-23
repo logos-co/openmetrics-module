@@ -73,10 +73,21 @@ int64_t OpenmetricsImpl::start(const std::string& configJson) {
     const int port = cfg.value("port", 0);
     if (port <= 0 || port > 65535) return 0;
 
-    std::vector<std::string> mods;
+    std::vector<ModuleSource> mods;
     if (cfg.contains("modules") && cfg["modules"].is_array()) {
         for (const auto& m : cfg["modules"]) {
-            if (m.is_string()) mods.push_back(m.get<std::string>());
+            if (m.is_string()) {
+                // Bare string => structured collectMetrics() source (the default).
+                const std::string name = m.get<std::string>();
+                if (!name.empty()) mods.push_back({name, /*renderedText=*/false});
+            } else if (m.is_object() && m.contains("name") && m["name"].is_string()) {
+                // Object => explicit per-module format selector.
+                const std::string name = m["name"].get<std::string>();
+                if (name.empty()) continue;
+                const std::string format = m.value("format", std::string("data"));
+                mods.push_back({name, /*renderedText=*/format == "text"});
+            }
+            // Anything else (malformed entry) is skipped.
         }
     }
 
@@ -108,13 +119,17 @@ std::string OpenmetricsImpl::getInfo() {
     LogosMap info;
     info["running"] = (m_daemon != nullptr);
     info["port"] = m_port;
-    info["modules"] = m_modules;
+    LogosMap mods = LogosMap::array();
+    for (const auto& src : m_modules) {
+        mods.push_back({{"name", src.name}, {"format", src.renderedText ? "text" : "data"}});
+    }
+    info["modules"] = std::move(mods);
     return info.dump();
 }
 
 std::string OpenmetricsImpl::scrape() {
     // Snapshot the configured module list without holding the lock across IPC.
-    std::vector<std::string> mods;
+    std::vector<ModuleSource> mods;
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         mods = m_modules;
@@ -122,14 +137,24 @@ std::string OpenmetricsImpl::scrape() {
 
     std::vector<openmetrics::ModuleMetrics> collected;
     collected.reserve(mods.size());
-    for (const auto& name : mods) {
-        // Bind the metrics_source interface to this module name and call its
-        // collectMetrics() through the typed wrapper. The SDK marshals the IPC
-        // onto the main thread. A module that doesn't implement it (or errors)
-        // yields an empty LogosMap, which the formatter skips — one bad module
-        // never breaks a scrape.
-        LogosMap payload = modules().bind_metrics_source(name).collectMetrics();
-        collected.push_back({name, std::move(payload)});
+    for (const auto& src : mods) {
+        // Bind the metrics_source interface to this module name and collect
+        // through the typed bound wrapper. The SDK marshals the IPC onto the
+        // main thread. A module that doesn't implement the called method (or
+        // errors) yields an empty payload, which the formatter skips — one bad
+        // module never breaks a scrape.
+        LogosMap payload;
+        if (src.renderedText) {
+            // The module hands back an already-rendered OpenMetrics document;
+            // parse it back into the {"metrics":[...]} shape so it merges — and
+            // picks up the module="<name>" label — exactly like a structured
+            // source.
+            std::string text = modules().bind_metrics_source(src.name).collectOpenMetricsText();
+            payload = openmetrics::parseOpenMetricsText(text);
+        } else {
+            payload = modules().bind_metrics_source(src.name).collectMetrics();
+        }
+        collected.push_back({src.name, std::move(payload)});
     }
 
     return openmetrics::toOpenMetricsText(collected);

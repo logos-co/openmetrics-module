@@ -5,10 +5,12 @@ A Logos module (`openmetrics`) that serves an [OpenMetrics](https://prometheus.i
 Prometheus and build dashboards.
 
 It is a **pure passthrough**: you start it with a config JSON listing the
-modules to scrape, it stands up an HTTP server, and on each scrape it calls each
-module's `collectMetrics()` and renders the aggregated result as OpenMetrics
-text. It does **not** discover modules or read platform stats — it only queries
-the modules you list.
+modules to scrape, it stands up an HTTP server, and on each scrape it collects
+from each listed module — either its structured `collectMetrics()` or, for
+modules that already render OpenMetrics, its `collectOpenMetricsText()` (see
+[below](#modules-that-already-render-openmetrics)) — and renders the aggregated
+result as OpenMetrics text. It does **not** discover modules or read platform
+stats — it only queries the modules you list.
 
 Written as a **universal pure-C++ module** (no Qt in the module code). It uses
 the **interface-dependencies** feature: instead of depending on any concrete
@@ -58,6 +60,37 @@ that don't implement `collectMetrics` (or that error) are skipped, so one bad
 module never breaks a scrape. See [`doctests/openmetrics.test.yaml`](doctests/openmetrics.test.yaml)
 for two minimal providers, built and scraped end-to-end.
 
+### Modules that already render OpenMetrics
+
+Some modules already speak OpenMetrics natively and would rather hand back a
+finished document than a structured map. Such a module implements, instead of
+`collectMetrics()`:
+
+```cpp
+std::string collectOpenMetricsText();   // returns a rendered OpenMetrics document
+```
+
+returning the usual `# HELP` / `# TYPE` / sample lines (terminated with `# EOF`).
+You tell the scraper to use that method for a given module by selecting its
+`format` in the `start` config (see below). The scraper **parses** the returned
+text back into the same internal shape as `collectMetrics()` and merges it like
+any other source — so the `module="<name>"` label is injected, families are
+grouped with the structured sources, and the per-type sample conventions still
+apply. (Any `module` label already present in the rendered text is dropped in
+favour of the authoritative one.) A module implements **either**
+`collectMetrics()` **or** `collectOpenMetricsText()`; the `format` selector picks
+which the scraper calls.
+
+All eight OpenMetrics metric types round-trip — `gauge`, `counter`,
+`histogram`, `gaugehistogram`, `summary`, `info`, `stateset`, and `unknown`. The
+multi-sample families (histogram/summary/gaugehistogram buckets, `_sum`,
+`_count`, quantiles, …) are regrouped under a single `# HELP`/`# TYPE`, and
+sample order is preserved. Value formats pass through verbatim, including
+integers, floats, exponents, and `+Inf`/`-Inf`/`NaN`. Optional timestamps and
+exemplars are dropped (the sample value is kept); `# UNIT` lines and comments are
+ignored. See [`tests/test_openmetrics_format.cpp`](tests/test_openmetrics_format.cpp)
+for the per-type round-trip coverage.
+
 ## Module API
 
 | Method | Signature | Purpose |
@@ -72,6 +105,28 @@ for two minimal providers, built and scraped end-to-end.
 ```json
 { "port": 9090, "modules": ["storage_module", "chat_module", "blockchain_module"] }
 ```
+
+Each `modules` entry is either a bare **string** (collected via `collectMetrics()`,
+the default) or an **object** that selects the collection method per module:
+
+```json
+{
+  "port": 9090,
+  "modules": [
+    "storage_module",                                  // collectMetrics()        (structured)
+    { "name": "libp2p_module", "format": "text" },     // collectOpenMetricsText() (rendered text)
+    { "name": "chat_module",   "format": "data" }      // collectMetrics()         (explicit)
+  ]
+}
+```
+
+| `format` | Method called | Payload |
+|----------|---------------|---------|
+| `"data"` (default) | `collectMetrics()` | structured `{"metrics":[...]}` |
+| `"text"` | `collectOpenMetricsText()` | a rendered OpenMetrics document (parsed + merged) |
+
+Bare-string entries remain valid and behave as `"data"`, so existing configs keep
+working unchanged.
 
 ## Usage
 
@@ -113,12 +168,14 @@ builder expects the flake alongside `metadata.json`).
 ├── flake.lock
 ├── metadata.json               # interface: universal; interface_dependencies: metrics_source
 ├── CMakeLists.txt              # logos_module + libmicrohttpd via pkg-config
-├── interfaces/metrics_source.h # the collectMetrics() contract (IMetricsSource)
+├── interfaces/metrics_source.h # the collectMetrics()/collectOpenMetricsText() contract (IMetricsSource)
 ├── src/
 │   ├── openmetrics_impl.h/.cpp     # LogosModuleContext; start/stop/getInfo/scrape + MHD server
-│   └── openmetrics_format.h/.cpp   # LogosMap → OpenMetrics exposition text
+│   └── openmetrics_format.h/.cpp   # LogosMap ↔ OpenMetrics exposition text (render + parse)
+├── tests/                      # unit tests for the parse/render layer (nix build .#unit-tests)
+│   └── test_openmetrics_format.cpp # per-type round-trip coverage (all 8 OpenMetrics types)
 └── doctests/                   # literate end-to-end doc-test
-    ├── openmetrics.test.yaml   # creates two providers inline, builds + scrapes openmetrics
+    ├── openmetrics.test.yaml   # creates three providers inline, builds + scrapes openmetrics
     ├── run.sh                  # runs the doc-test and regenerates outputs/
     └── outputs/openmetrics.md  # rendered report (commands + actual output)
 ```

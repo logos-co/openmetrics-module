@@ -22,5 +22,11 @@
       src = ./.;
       configFile = ./metadata.json;
       flakeInputs = inputs;
+
+      # Pure unit tests for the OpenMetrics text <-> LogosMap layer (parse +
+      # render). Exposed as checks.<system>.unit-tests; run with `nix flake check`.
+      tests = {
+        dir = ./tests;
+      };
     };
 }
