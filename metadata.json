@@ -1,6 +1,6 @@
 {
   "name": "openmetrics",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Serves an OpenMetrics /metrics endpoint by scraping modules that implement collectMetrics()",
   "author": "Logos Core Team",
   "type": "core",
