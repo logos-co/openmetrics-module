@@ -2,7 +2,7 @@
   description = "openmetrics — a Logos module that serves an OpenMetrics /metrics endpoint by scraping modules that implement collectMetrics()";
 
   inputs = {
-    logos-module-builder.url = "github:logos-co/logos-module-builder/0.2.4";
+    logos-module-builder.url = "github:logos-co/logos-module-builder/0.2.5";
   };
 
   # The repo ships exactly one module: the `openmetrics` scraper (its sources sit
