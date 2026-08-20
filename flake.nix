@@ -1,6 +1,12 @@
 {
   description = "openmetrics — a Logos module that serves an OpenMetrics /metrics endpoint by scraping modules that implement collectMetrics()";
 
+  # Pull pre-built artifacts from the self-hosted Logos Attic cache(Nix binary cache).
+  nixConfig = {
+    extra-substituters = [ "https://cache.nix.logos.co/public" ];
+    extra-trusted-public-keys = [ "public:l4HrXgL4nw246+LBh2SOJyhz64BoGegOYLheT/iIAPU=" ];
+  };
+
   inputs = {
     logos-module-builder.url = "github:logos-co/logos-module-builder/0.2.5";
   };
