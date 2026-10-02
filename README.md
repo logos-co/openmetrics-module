@@ -135,6 +135,9 @@ working unchanged.
 nix build            # the plugin
 nix build .#lgx      # a .lgx package
 
+# Windows (cross-built from x86_64-linux with mingw)
+nix build .#packages.x86_64-windows.lgx-portable
+
 # Run under a logoscore daemon alongside the modules you want to scrape, then
 # point openmetrics at them by name:
 logoscore -D -m ./modules --config-dir /tmp/om
@@ -176,6 +179,7 @@ builder expects the flake alongside `metadata.json`).
 │   └── test_openmetrics_format.cpp # per-type round-trip coverage (all 8 OpenMetrics types)
 └── doctests/                   # literate end-to-end doc-test
     ├── openmetrics.test.yaml   # creates three providers inline, builds + scrapes openmetrics
+    ├── openmetrics-windows.test.yaml # Windows CI leg: loads + scrapes the cross-built module
     ├── run.sh                  # runs the doc-test and regenerates outputs/
     └── outputs/openmetrics.md  # rendered report (commands + actual output)
 ```

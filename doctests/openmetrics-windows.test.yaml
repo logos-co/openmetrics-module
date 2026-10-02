@@ -1,0 +1,101 @@
+name: "Serve /metrics on Windows"
+output: openmetrics-windows.md
+project_name: openmetrics-module
+release: ""
+
+intro: |
+  This doc-test checks the Windows build of `openmetrics`. CI stages the
+  cross-built module beside a native `logoscore` host, loads it, starts the
+  HTTP server and scrapes it with `curl`.
+
+  The scrape targets `capability_module`, which ships with `logoscore` and has
+  no `collectMetrics()`. That still makes the scraper call another module from
+  the HTTP server thread, and an empty source must not break the document. The
+  Linux and macOS doc-test scrapes real providers.
+
+what_you_build: "The Windows openmetrics plugin serving /metrics from a native logoscore daemon."
+
+what_you_learn:
+  - How to stage openmetrics beside a Windows logoscore
+  - How to start the server and scrape it on Windows
+
+sections:
+  - title: "Serve and scrape /metrics on Windows"
+    platform: windows
+    step: true
+    text: |
+      The shared Windows CI stages the cross-built module and `logoscore`.
+      These commands run on a native Windows runner from that staged directory.
+    steps:
+      - title: "Stage the openmetrics module"
+        run: |
+          test -f windows-logoscore/modules/capability_module/manifest.json
+          test ! -e windows-logoscore/modules/openmetrics
+          cp -R install-portable/modules/openmetrics windows-logoscore/modules/
+        check_file: windows-logoscore/modules/openmetrics/manifest.json
+
+      - title: "Start the Windows daemon"
+        run: |
+          ./windows-logoscore/bin/logoscore.exe -D -m ./windows-logoscore/modules --config-dir ./om-config > om-daemon.log 2>&1 &
+
+      - title: "Wait for the daemon"
+        run: |
+          ready=0
+          for attempt in $(seq 1 30); do
+            if run windows-logoscore/bin/logoscore.exe --config-dir ./om-config status | grep -qF '"status":"running"'; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -eq 1 ]; then echo 'daemon ready'; else cat om-daemon.log; false; fi
+        expect_contains:
+          - "daemon ready"
+
+      - title: "Load openmetrics"
+        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config load-module openmetrics"
+        expect_contains:
+          - '"module":"openmetrics"'
+
+      - title: "Start the server"
+        text: |
+          The config goes in a file: Windows strips the quotes from JSON passed
+          on the command line.
+        run: |
+          printf '%s' '{"port":9099,"modules":["capability_module"]}' > om-start.json
+          run windows-logoscore/bin/logoscore.exe --config-dir ./om-config call openmetrics start @om-start.json
+        expect_contains:
+          - '"result":1'
+
+      - title: "Health check"
+        run: "curl -s -m 30 http://127.0.0.1:9099/health"
+        expect_contains:
+          - "ok"
+
+      - title: "Scrape /metrics"
+        run: "curl -s -m 60 -D - http://127.0.0.1:9099/metrics"
+        expect_contains:
+          - "200 OK"
+          - "application/openmetrics-text"
+          - "# EOF"
+
+      - title: "Unknown paths are 404"
+        run: "curl -s -m 30 -o /dev/null -w '%{http_code}' http://127.0.0.1:9099/nope"
+        expect_contains:
+          - "404"
+
+      - title: "getInfo reports what it's serving"
+        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config call openmetrics getInfo"
+        expect_contains:
+          - '\"running\":true'
+          - '\"port\":9099'
+
+      - title: "Stop the server"
+        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config call openmetrics stop"
+        expect_contains:
+          - '"result":1'
+
+      - title: "Stop the Windows daemon"
+        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config stop"
+        expect_contains:
+          - '"status":"ok"'
