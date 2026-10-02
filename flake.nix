@@ -8,7 +8,7 @@
   };
 
   inputs = {
-    logos-module-builder.url = "github:logos-co/logos-module-builder/0.2.5";
+    logos-module-builder.url = "github:logos-co/logos-module-builder/0.3.2";
   };
 
   # The repo ships exactly one module: the `openmetrics` scraper (its sources sit
