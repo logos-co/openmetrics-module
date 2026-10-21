@@ -5,7 +5,7 @@
 # Spec:
 #   - openmetrics.test.yaml   builds the openmetrics scraper from this repo plus
 #                             two inline provider modules, runs all three through
-#                             a logoscore daemon, and scrapes /metrics.
+#                             a logosctl daemon, and scrapes /metrics.
 #
 # The runner is the shared `doctest` CLI (https://github.com/logos-co/logos-doctest),
 # invoked directly via its flake. `doctest run` executes every command in a temp

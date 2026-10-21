@@ -3,7 +3,7 @@ name: Doc-Tests
 # Runs the executable openmetrics doc-test end-to-end via the shared doctest CLI,
 # building the openmetrics scraper from the commit under test:
 #   - openmetrics.test.yaml   creates two provider modules inline, builds the
-#     openmetrics scraper from this repo, runs all three under a logoscore daemon,
+#     openmetrics scraper from this repo, runs all three under a logosctl daemon,
 #     starts the HTTP server, and scrapes /metrics — asserting the aggregated
 #     OpenMetrics document.
 #
@@ -119,18 +119,18 @@ jobs:
 
   windows:
     # Cross-built on Linux, run natively on windows-latest by the shared
-    # harness: openmetrics beside a logoscore host, scraped with curl.
+    # harness: openmetrics in a logosctl session, scraped with curl.
     uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@v1
     secrets: inherit
     with:
       targets: default lgx-portable install-portable
       extra-targets: >-
-        {"windows-logoscore": {
-          "ref": "github:logos-co/logos-logoscore-cli#packages.x86_64-windows.cli-bundle-dir",
+        {"windows-logosctl": {
+          "ref": "github:logos-co/logos-logoscore-cli#packages.x86_64-windows.ctl-bundle-dir",
           "omit": ["lib/qt-6/plugins"]
         }}
       assemble: >-
-        {"install-portable": ["default/lib", "windows-logoscore/bin"]}
+        {"install-portable": ["default/lib", "windows-logosctl/bin"]}
       doctest-spec: doctests/openmetrics-windows.test.yaml
       doctest-artifact: openmetrics-doctest-report
       lgx-variant: true
@@ -222,7 +222,7 @@ jobs:
               `${marker}\n` +
               `### 📊 openmetrics doc-test report\n\n` +
               `The openmetrics scraper built from this commit, run with two inline ` +
-              `provider modules through a logoscore daemon — rendered alongside the ` +
+              `provider modules through a logosctl daemon — rendered alongside the ` +
               `commands actually run and their output (updated each run, commit ` +
               `\`${context.sha.slice(0,7)}\`):\n\n` +
               `${links}\n\n` +

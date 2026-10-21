@@ -5,18 +5,18 @@ release: ""
 
 intro: |
   This doc-test checks the Windows build of `openmetrics`. CI stages the
-  cross-built module beside a native `logoscore` host, loads it, starts the
+  cross-built module beside a native `logosctl` host, loads it, starts the
   HTTP server and scrapes it with `curl`.
 
-  The scrape targets `capability_module`, which ships with `logoscore` and has
+  The scrape targets `capability_module`, which ships with `logosctl` and has
   no `collectMetrics()`. That still makes the scraper call another module from
   the HTTP server thread, and an empty source must not break the document. The
   Linux and macOS doc-test scrapes real providers.
 
-what_you_build: "The Windows openmetrics plugin serving /metrics from a native logoscore daemon."
+what_you_build: "The Windows openmetrics plugin serving /metrics from a native logosctl daemon."
 
 what_you_learn:
-  - How to stage openmetrics beside a Windows logoscore
+  - How to stage openmetrics into a Windows logosctl session
   - How to start the server and scrape it on Windows
 
 sections:
@@ -24,36 +24,27 @@ sections:
     platform: windows
     step: true
     text: |
-      The shared Windows CI stages the cross-built module and `logoscore`.
+      The shared Windows CI stages the cross-built module and `logosctl`.
       These commands run on a native Windows runner from that staged directory.
     steps:
       - title: "Stage the openmetrics module"
+        text: |
+          The session's `modules/` directory is where a daemon finds installed
+          modules; `capability_module` stays in the bundled set beside the binary.
         run: |
-          test -f windows-logoscore/modules/capability_module/manifest.json
-          test ! -e windows-logoscore/modules/openmetrics
-          cp -R install-portable/modules/openmetrics windows-logoscore/modules/
-        check_file: windows-logoscore/modules/openmetrics/manifest.json
+          test -f windows-logosctl/modules/capability_module/manifest.json
+          mkdir -p om-config/modules
+          cp -R install-portable/modules/openmetrics om-config/modules/
+        check_file: om-config/modules/openmetrics/manifest.json
 
       - title: "Start the Windows daemon"
-        run: |
-          ./windows-logoscore/bin/logoscore.exe -D -m ./windows-logoscore/modules --config-dir ./om-config > om-daemon.log 2>&1 &
-
-      - title: "Wait for the daemon"
-        run: |
-          ready=0
-          for attempt in $(seq 1 30); do
-            if run windows-logoscore/bin/logoscore.exe --config-dir ./om-config status | grep -qF '"status":"running"'; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" -eq 1 ]; then echo 'daemon ready'; else cat om-daemon.log; false; fi
+        text: "`--detach` returns once the daemon accepts commands."
+        run: "run windows-logosctl/bin/logosctl.exe --config-dir ./om-config daemon start --detach"
         expect_contains:
-          - "daemon ready"
+          - "Daemon started"
 
       - title: "Load openmetrics"
-        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config load-module openmetrics"
+        run: "run windows-logosctl/bin/logosctl.exe --config-dir ./om-config module load openmetrics"
         expect_contains:
           - '"module":"openmetrics"'
 
@@ -63,7 +54,7 @@ sections:
           on the command line.
         run: |
           printf '%s' '{"port":9099,"modules":["capability_module"]}' > om-start.json
-          run windows-logoscore/bin/logoscore.exe --config-dir ./om-config call openmetrics start @om-start.json
+          run windows-logosctl/bin/logosctl.exe --config-dir ./om-config call openmetrics start @om-start.json
         expect_contains:
           - '"result":1'
 
@@ -85,17 +76,17 @@ sections:
           - "404"
 
       - title: "getInfo reports what it's serving"
-        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config call openmetrics getInfo"
+        run: "run windows-logosctl/bin/logosctl.exe --config-dir ./om-config call openmetrics getInfo"
         expect_contains:
           - '\"running\":true'
           - '\"port\":9099'
 
       - title: "Stop the server"
-        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config call openmetrics stop"
+        run: "run windows-logosctl/bin/logosctl.exe --config-dir ./om-config call openmetrics stop"
         expect_contains:
           - '"result":1'
 
       - title: "Stop the Windows daemon"
-        run: "run windows-logoscore/bin/logoscore.exe --config-dir ./om-config stop"
+        run: "run windows-logosctl/bin/logosctl.exe --config-dir ./om-config daemon stop"
         expect_contains:
           - '"status":"ok"'
