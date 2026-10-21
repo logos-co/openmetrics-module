@@ -25,7 +25,7 @@ intro: |
      `collectOpenMetricsText()` — the scraper parses and merges that text like
      any other source.
   2. Build the `openmetrics` scraper from **this repo**, and all three providers,
-     then run them under a `logoscore` daemon.
+     then run them under a `logosctl` daemon.
   3. Start the server (telling it to call `collectOpenMetricsText()` for
      `build_info_module` via `"format": "text"`), `curl /metrics`, and assert the
      aggregated OpenMetrics document — every series, structured or text-sourced,
@@ -34,7 +34,7 @@ intro: |
   A green run means the worker-thread scrape reached every provider, parsed the
   rendered-text source, and rendered one valid OpenMetrics document.
 
-what_you_build: "The `openmetrics` scraper (built from this repo) plus three inline provider modules — two structured (`collectMetrics()`) and one that returns rendered OpenMetrics text (`collectOpenMetricsText()`) — run together in `logoscore`; an HTTP scrape of `/metrics` drives a collection call into each provider from the server thread."
+what_you_build: "The `openmetrics` scraper (built from this repo) plus three inline provider modules — two structured (`collectMetrics()`) and one that returns rendered OpenMetrics text (`collectOpenMetricsText()`) — run together in `logosctl`; an HTTP scrape of `/metrics` drives a collection call into each provider from the server thread."
 
 what_you_learn:
   - The `collectMetrics()` convention a module implements to be scrapeable
@@ -42,7 +42,7 @@ what_you_learn:
   - How to pick the collection method per module with the `"format"` config selector
   - How `openmetrics` aggregates several modules' metrics into one OpenMetrics document
   - How a module can serve HTTP and call other modules from the server thread (the SDK marshals the IPC)
-  - How to run a scraper + providers under a `logoscore` daemon and scrape with `curl`
+  - How to run a scraper + providers under a `logosctl` daemon and scrape with `curl`
 
 prerequisites:
   - |
@@ -477,46 +477,39 @@ sections:
   - title: "Build the runtime and install all three modules"
     step: true
     text: |
-      Build `logoscore` and `lgpm`, seed the modules directory with the capability
-      module that ships with `logoscore`, then install the scraper and both
-      providers.
+      Build `logosctl`, start its daemon, then install the scraper and the three
+      providers into the daemon's session.
     steps:
-      - title: "Build logoscore"
-        run: "nix build 'github:logos-co/logos-logoscore-cli' --out-link ./logos"
-        check_file: "logos/bin/logoscore"
+      - title: "Build logosctl"
+        run: "nix build 'github:logos-co/logos-logoscore-cli#ctl' --out-link ./logos"
+        check_file: "logos/bin/logosctl"
 
-      - title: "Build lgpm"
-        run: "nix build 'github:logos-co/logos-package-manager#cli' -o lgpm"
-        check_file: "lgpm/bin/lgpm"
-
-      - title: "Seed the modules directory with the capability module"
-        run: |
-          mkdir -p modules
-          cp -RL ./logos/modules/. ./modules/
-        check_file: "modules/capability_module/manifest.json"
-
-      - title: "Install the scraper"
-        run: "./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file openmetrics-lgx/*.lgx"
+      - title: "Start the daemon"
+        text: |
+          The session directory, `./session`, holds the daemon's config, its
+          installed modules and their data. `--detach` returns once the daemon
+          accepts commands.
+        # The bundled package downloader starts a storage node in $HOME; keep it
+        # out of the real one.
+        run: "mkdir -p home && HOME=\"$PWD/home\" ./logos/bin/logosctl --config-dir ./session daemon start --detach"
+        code_block: "logosctl daemon start --detach"
         expect_contains:
-          - "Installed to:"
+          - "Daemon started"
 
-      - title: "Install temperature_module"
-        run: "./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file temperature-lgx/*.lgx"
+      - title: "Install the scraper and the providers"
+        text: |
+          Paths ending in `.lgx` install from disk, with no catalog involved, and
+          one command takes all four. Local builds are unsigned, which the
+          session's default policy accepts with a warning. `-y` confirms, since
+          there is no terminal to ask on.
+        run: "./logos/bin/logosctl --config-dir ./session install openmetrics-lgx/*.lgx temperature-lgx/*.lgx request-counter-lgx/*.lgx build-info-lgx/*.lgx -y"
+        code_block: "logosctl install openmetrics-lgx/*.lgx temperature-lgx/*.lgx request-counter-lgx/*.lgx build-info-lgx/*.lgx -y"
         expect_contains:
-          - "Installed to:"
-
-      - title: "Install request_counter_module"
-        run: "./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file request-counter-lgx/*.lgx"
-        expect_contains:
-          - "Installed to:"
-
-      - title: "Install build_info_module"
-        run: "./lgpm/bin/lgpm --modules-dir ./modules --allow-unsigned install --file build-info-lgx/*.lgx"
-        expect_contains:
-          - "Installed to:"
+          - '"status":"ok"'
 
       - title: "Confirm all four are installed"
-        run: "./lgpm/bin/lgpm --modules-dir ./modules list"
+        run: "./logos/bin/logosctl --config-dir ./session package ls"
+        code_block: "logosctl package ls"
         expect_contains:
           - "openmetrics"
           - "temperature_module"
@@ -526,34 +519,28 @@ sections:
   - title: "Run it and scrape /metrics"
     step: true
     text: |
-      Start the daemon, load the providers and the scraper, then `start` the
+      Load the providers and the scraper, then `start` the
       scraper with a config JSON naming the three modules to scrape — the two
       structured ones as bare strings, and `build_info_module` as an object with
       `"format": "text"` so the scraper calls `collectOpenMetricsText()` for it. A
       single `curl` then drives a collection call into each provider — from the
       HTTP server thread — and returns the aggregated OpenMetrics document.
     steps:
-      - title: "Start the daemon"
-        run: "sh -c './logos/bin/logoscore -D -m ./modules > logs.txt 2>&1 &'"
-        code_block: "logoscore -D -m ./modules > logs.txt &"
-
-      - run: "sleep 3"
-
       - title: "Load the providers"
         run: |
-          ./logos/bin/logoscore load-module temperature_module
-          ./logos/bin/logoscore load-module request_counter_module
-          ./logos/bin/logoscore load-module build_info_module
+          ./logos/bin/logosctl --config-dir ./session module load temperature_module
+          ./logos/bin/logosctl --config-dir ./session module load request_counter_module
+          ./logos/bin/logosctl --config-dir ./session module load build_info_module
         code_block: |
-          logoscore load-module temperature_module
-          logoscore load-module request_counter_module
-          logoscore load-module build_info_module
+          logosctl module load temperature_module
+          logosctl module load request_counter_module
+          logosctl module load build_info_module
         expect_contains:
           - "build_info_module"
 
       - title: "Load the scraper"
-        run: "./logos/bin/logoscore load-module openmetrics"
-        code_block: "logoscore load-module openmetrics"
+        run: "./logos/bin/logosctl --config-dir ./session module load openmetrics"
+        code_block: "logosctl module load openmetrics"
         expect_contains:
           - "openmetrics"
 
@@ -566,9 +553,9 @@ sections:
           parses the result. Passed as a single argument so the JSON reaches the
           module intact.
         run: |
-          ./logos/bin/logoscore call openmetrics start '{"port":9099,"modules":["temperature_module","request_counter_module",{"name":"build_info_module","format":"text"}]}'
+          ./logos/bin/logosctl --config-dir ./session call openmetrics start '{"port":9099,"modules":["temperature_module","request_counter_module",{"name":"build_info_module","format":"text"}]}'
         code_block: |
-          logoscore call openmetrics start '{"port":9099,"modules":["temperature_module","request_counter_module",{"name":"build_info_module","format":"text"}]}'
+          logosctl call openmetrics start '{"port":9099,"modules":["temperature_module","request_counter_module",{"name":"build_info_module","format":"text"}]}'
         expect_contains:
           - '"result":1'
 
@@ -610,29 +597,27 @@ sections:
 
       - title: "getInfo reports what it's serving"
         text: |
-          `getInfo()` returns its status as a JSON string, so `logoscore`
+          `getInfo()` returns its status as a JSON string, so `logosctl`
           delivers it as an escaped string inside the `result` field.
-        run: "./logos/bin/logoscore call openmetrics getInfo"
-        code_block: "logoscore call openmetrics getInfo"
+        run: "./logos/bin/logosctl --config-dir ./session call openmetrics getInfo"
+        code_block: "logosctl call openmetrics getInfo"
         expect_contains:
           - '\"running\":true'
           - '\"port\":9099'
 
       - title: "Stop the server"
-        run: "./logos/bin/logoscore call openmetrics stop"
-        code_block: "logoscore call openmetrics stop"
+        run: "./logos/bin/logosctl --config-dir ./session call openmetrics stop"
+        code_block: "logosctl call openmetrics stop"
         expect_contains:
           - '"result":1'
 
       - title: "Stop the daemon"
-        run: "./logos/bin/logoscore stop"
-        code_block: "logoscore stop"
-
-      - run: "sleep 2"
+        run: "./logos/bin/logosctl --config-dir ./session daemon stop"
+        code_block: "logosctl daemon stop"
 
       - title: "Confirm the daemon has stopped"
-        run: "./logos/bin/logoscore status || true"
-        code_block: "logoscore status"
+        run: "./logos/bin/logosctl --config-dir ./session daemon status || true"
+        code_block: "logosctl daemon status"
         expect_contains:
           - '"status":"not_running"'
 

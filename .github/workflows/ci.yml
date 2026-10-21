@@ -42,6 +42,6 @@ jobs:
       - name: Build the installable package
         run: nix build .#lgx -L
 
-      # The end-to-end scrape (scraper + providers through logoscore, curl
+      # The end-to-end scrape (scraper + providers through logosctl, curl
       # /metrics) is exercised by the literate doc-test — see the Doc-Tests
       # workflow and doctests/openmetrics.test.yaml.
